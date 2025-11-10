@@ -14,6 +14,7 @@ class MiraApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+
     return MaterialApp(
       title: 'Mira AI Assistant',
       debugShowCheckedModeBanner: false,

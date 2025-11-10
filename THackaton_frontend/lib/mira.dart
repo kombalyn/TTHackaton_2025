@@ -1,5 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:mira_hackaton_2025/services/mcp_client.dart';
+import 'TTSService.dart';
 import 'services/mira_ws_client.dart';
+//import 'myVideoCard.dart';
+
+
+
+import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+
+
 /*
 void main() {
   runApp(const MiraApp());
@@ -39,6 +50,9 @@ class MiraScreen extends StatefulWidget {
 }
 
 class _MiraScreenState extends State<MiraScreen> with TickerProviderStateMixin {
+  final MCPClient mcp = MCPClient(baseUrl: "http://104.155.99.100:5055");
+  String _resultText = "Kérés folyamatban...";
+
   final ScrollController _scrollController = ScrollController();
   bool _isListening = false;
   bool _isProcessing = false;
@@ -47,10 +61,131 @@ class _MiraScreenState extends State<MiraScreen> with TickerProviderStateMixin {
 
   late MiraWebSocketClient _wsClient;
 
-  @override
+  //final SpeechToText sttService = SpeechToText();
+
+  final tts = TTSService();
+  String botMessage = '  Üdvözlöm nálunk.';
+  //final VideoCardController _controller = VideoCardController();
+
+  bool isSpeaking = false;
+
+  late stt.SpeechToText _speech;
+  String _recognizedText = "";
+
+
+  List<String> ember_szovegek = [
+    'We’d like to find a budget-friendly family ski trip for this weekend.',
+    'Two adults and two children.'
+    'Heiligenblut.',
+    'Heiligenblut.',
+    'Heiligenblut.',
+    'Heiligenblut.',
+    'Heiligenblut.',
+    'Heiligenblut.',
+  ];
+  List<String> ai_szovegek = [
+    'Great — thanks for the info! Just a couple of quick questions so I can find the best family ski‑weekend for you: how many people (adults & children)?',
+    'Thanks for the additional details — that’s really helpful! So we’re looking at 2 adults + 2 children for a family ski weekend. What town or region are you interested?',
+    'Great — choosing Heiligenblut is a lovely idea!. Here are some great options for you:',
+    'Great — choosing Heiligenblut is a lovely idea!. Here are some great options for you:',
+    'Great — choosing Heiligenblut is a lovely idea!. Here are some great options for you:',
+    'Great — choosing Heiligenblut is a lovely idea!. Here are some great options for you:',
+    'Great — choosing Heiligenblut is a lovely idea!. Here are some great options for you:',
+  ];
+
+
+  int inmost = 0;
+
+  List<String> _chatMessages = [];
+  List<int> MessagesIdentity = [
+  ];
+
+
+  void _addAssistantMessage(String text) {
+    setState(() {
+      _chatMessages.add(text);
+      MessagesIdentity.add(0);
+    });
+  }
+
+  void _addUserMessage(String text) {
+    setState(() {
+      _chatMessages.add(text);
+      MessagesIdentity.add(1);
+    });
+  }
+
+  void _addChatMessage(String message) {
+    setState(() {
+      _chatMessages.add(message);
+    });
+  }
+
+
+
+  Future<void> _loadDemoData() async {
+    try {
+      final attractions = await mcp.getTopAttractions("Vienna", limit: 3);
+
+      if (attractions.isEmpty) {
+        setState(() {
+          _resultText = "Nincs találat Bécsre.";
+        });
+      } else {
+        final names = attractions.map((a) => a['name']).join("\n• ");
+        setState(() {
+          _resultText = "🎯 Top látnivalók Bécsben:\n• $names";
+        });
+      }
+    } catch (e) {
+      setState(() {
+        _resultText = "⚠️ Hiba történt: $e";
+      });
+    }
+  }
+
+
   @override
   void initState() {
+    _loadDemoData();
+
+
+    /*
+    // MCP-teszt: induláskor lefut, és kiírja az eredményt vagy hibát
+    Future.delayed(const Duration(seconds: 1), () async {
+      print("🔍 MCP teszt indul...");
+
+      try {
+        final result = await mcp.getTopAttractions("Vienna", limit: 3);
+        print("✅ MCP válasz: $result");
+
+        if (result.isEmpty) {
+          setState(() {
+            _resultText = "⚠️ Nincs találat Bécsre (MCP válasz üres).";
+          });
+        } else {
+          setState(() {
+            final names = result.map((a) => a['name']).join("\n• ");
+            _resultText = "🎯 MCP működik!\nTop látnivalók Bécsben:\n• $names";
+            _addAssistantMessage(_resultText);
+          });
+        }
+      } catch (e) {
+        print("❌ MCP hiba: $e");
+        setState(() {
+          _resultText = "❌ MCP hiba: $e";
+          _addAssistantMessage(_resultText);
+        });
+      }
+    });
+
+     */
+
+
+
+
     super.initState();
+    _speech = stt.SpeechToText();
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 1500),
@@ -60,27 +195,171 @@ class _MiraScreenState extends State<MiraScreen> with TickerProviderStateMixin {
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    _wsClient = MiraWebSocketClient(uri: "wss://104.155.99.100:5055");
-    _wsClient.connect(onMessage: (msg) {
-      print("💬 Szerver válasz: $msg");
-      // Itt lehet majd frissíteni a chat UI-t
+    super.initState();
+
+    tts.connect(
+          (partialText) {
+        setState(() {
+          botMessage += partialText;
+        });
+        // Ha meg szeretnéd jeleníteni a chatben:
+        setState(() {
+          //_addAssistantMessage(partialText);
+        });
+
+      },
+          () {
+        //_controller.changeVideo(0);
+      },
+    );
+
+    // Küldjünk egy teszt üzenetet, hogy lássuk, működik-e
+    Future.delayed(const Duration(seconds: 1), () {
+      tts.speak("Hi there! I’m Mira, your local travel assistant. What kind of experience are you looking for? Cultural, active, or mainstream events?", mode: "tts"
+          ,onStart: () {
+        setState(() {
+          isSpeaking = true;
+          print(true);
+        });
+        Future.delayed(const Duration(milliseconds: 800), () {
+          //_controller.changeVideo(0);
+        });
+      },
+        onComplete: () {
+        setState(() {
+          isSpeaking = false;
+          print("false");
+          //_controller.changeVideo(1);
+          //_startListening();
+        });
+      },);
+      _chatMessages.add('Hi there! I’m Mira, your local travel assistant. What kind of experience are you looking for? Cultural, active, or mainstream events?',);
+      MessagesIdentity.add(0);
     });
 
-    // Automatikusan küldjön egy üzenetet, mikor az app elindul
-    _wsClient.sendStartMessage("Hello from the Flutter app!");
   }
+
+
+  Future<void> _startListening() async {
+    bool available = await _speech.initialize(
+      onStatus: (status) {
+        debugPrint('Speech status: $status');
+        if (status == 'done') {
+          setState(() {
+            _isListening = false;
+          });
+          _speech.stop();
+          // ha szeretnéd, itt lehet automatikusan válaszoltatni
+          _handleRecognizedText();
+        }
+      },
+      onError: (errorNotification) {
+        debugPrint('Speech error: $errorNotification');
+      },
+    );
+
+    if (available) {
+      setState(() {
+        _isListening = true;
+        _recognizedText = "";
+      });
+
+      _speech.listen(
+        onResult: (result) {
+          setState(() {
+            _recognizedText = result.recognizedWords;
+          });
+        },
+        listenFor: const Duration(seconds: 8),
+        pauseFor: const Duration(seconds: 3),
+        localeId: 'en_US', // vagy 'hu_HU' ha magyarul beszél
+      );
+    } else {
+      debugPrint("Speech recognition not available");
+    }
+  }
+
+
+  void _handleRecognizedText() {
+    if (_recognizedText.isNotEmpty) {
+      _addUserMessage(_recognizedText);
+
+      /*
+      // itt küldheted tovább a recognized textet a Mira logikába:
+      tts.speak("You said: $_recognizedText", mode: "tts",
+          onStart: () => setState(() => isSpeaking = true),
+          onComplete: () => setState(() => isSpeaking = false));
+
+       */
+
+    }
+  }
+
 
 
   @override
   void dispose() {
+    _wsClient.disconnect();
     _scrollController.dispose();
     _pulseController.dispose();
     super.dispose();
   }
 
   void _toggleListening() {
+
+    /*
+    if (_isListening) {
+      _speech.stop();
+      //setState(() => _isListening = false);
+    } else {
+      _startListening();
+    }
+
+     */
+
     setState(() {
       _isListening = !_isListening;
+
+      if(!_isListening){
+        Future.delayed(const Duration(seconds: 1), () {
+          //_addUserMessage(_recognizedText);
+
+          tts.speak(ai_szovegek[inmost], mode: "tts"
+            //tts.speak(_recognizedText, mode: "speak"
+            ,onStart: () {
+              _addUserMessage(ember_szovegek[inmost]);
+              _addAssistantMessage(ai_szovegek[inmost]);
+              setState(() {
+                isSpeaking = true;
+              });
+              /*
+              Future.delayed(const Duration(milliseconds: 800), () {
+                //_controller.changeVideo(0);
+              });
+
+               */
+            },
+            onComplete: () {
+              setState(() {
+                isSpeaking = false;
+                  //_controller.changeVideo(1);
+                //_startListening();
+
+                setState(() {
+                  inmost=inmost+1;
+                });
+                print(inmost);
+
+              });
+            },);
+
+
+
+        });
+
+
+      }
+
     });
   }
 
@@ -175,13 +454,45 @@ class _MiraScreenState extends State<MiraScreen> with TickerProviderStateMixin {
                     ),
                     shape: BoxShape.circle,
                   ),
-                  child: Center(
-                    child: Icon(
-                      Icons.psychology_rounded,
-                      color: const Color(0xFF6366F1),
-                      size: 36,
+                  /*child: Center(
+                    child: ClipOval(  // vagy CircleAvatar, ha szeretnéd
+                      child: Image.asset(
+                        'assets/images/im.jpeg',  // cseréld le a saját asset útvonaladra
+                        width: 106,
+                        height: 106,
+                        fit: BoxFit.cover,
+                      ),
                     ),
                   ),
+                   */
+
+                  child: Center(
+                    child: Container(
+                      width: 250,
+                      height: 250,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: const Color(0xFF6366F1),
+                          width: 2,
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.1),
+                            blurRadius: 8,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      clipBehavior: Clip.hardEdge,
+                      child:  isSpeaking? _VideoAvatar() : _VideoAvatar2(),
+                    ),
+                  ),
+
+
+
+
                 ),
                 const SizedBox(width: 16),
                 Column(
@@ -212,11 +523,55 @@ class _MiraScreenState extends State<MiraScreen> with TickerProviderStateMixin {
     );
   }
 
+
+
+  Widget _buildAssistantMessage(String text) {
+    return Container(
+      margin: const EdgeInsets.only(left: 16, right: 80, top: 8, bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade200,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(text),
+    );
+  }
+
+  Widget _buildUserMessage(String text) {
+    return Container(
+      margin: const EdgeInsets.only(left: 80, right: 16, top: 8, bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.blueAccent,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(text, style: const TextStyle(color: Colors.white)),
+    );
+  }
+
+
+  Widget _buildChatList() {
+    return ListView.builder(
+      itemCount: _chatMessages.length,
+      itemBuilder: (context, index) {
+        final message = _chatMessages[index];
+        if (MessagesIdentity[index] == 0) {
+          return _buildAssistantMessage(message);
+        } else {
+          return _buildUserMessage(message);
+        }
+      },
+    );
+  }
+
+  /*
   Widget _buildChatList() {
     return ListView(
       controller: _scrollController,
       padding: const EdgeInsets.fromLTRB(16, 24, 16, 120),
       children: [
+
+
         _buildAssistantMessage(
           'Hello! I\'m here to help you discover amazing experiences. What kind of adventure are you looking for today?',
         ),
@@ -224,6 +579,8 @@ class _MiraScreenState extends State<MiraScreen> with TickerProviderStateMixin {
         _buildUserMessage(
           'I\'d like to book a wine tasting in Carinthia next weekend.',
         ),
+
+
         const SizedBox(height: 16),
         _buildAssistantMessageWithCard(),
         const SizedBox(height: 16),
@@ -231,7 +588,9 @@ class _MiraScreenState extends State<MiraScreen> with TickerProviderStateMixin {
       ],
     );
   }
+*/
 
+/*
   Widget _buildAssistantMessage(String message) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -304,6 +663,8 @@ class _MiraScreenState extends State<MiraScreen> with TickerProviderStateMixin {
       ],
     );
   }
+
+ */
 
   Widget _buildAssistantMessageWithCard() {
     return Row(
@@ -608,3 +969,111 @@ class _MiraScreenState extends State<MiraScreen> with TickerProviderStateMixin {
     );
   }
 }
+
+
+
+
+
+
+
+
+
+class _VideoAvatar extends StatefulWidget {
+  @override
+  State<_VideoAvatar> createState() => _VideoAvatarState();
+}
+
+class _VideoAvatarState extends State<_VideoAvatar> {
+  late VideoPlayerController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.asset('assets/videos/assistant.mp4')
+      ..initialize().then((_) {
+        setState(() {});
+        _controller.setLooping(true);
+        _controller.play(); // automatikusan elindítja
+      });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_controller.value.isInitialized) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: AspectRatio(
+        aspectRatio: _controller.value.aspectRatio,
+        child: VideoPlayer(_controller),
+      ),
+    );
+  }
+}
+
+
+
+
+class _VideoAvatar2 extends StatefulWidget {
+  @override
+  State<_VideoAvatar2> createState() => _VideoAvatarState2();
+}
+
+class _VideoAvatarState2 extends State<_VideoAvatar2> {
+  late VideoPlayerController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.asset('assets/videos/hallgat.mp4')
+      ..initialize().then((_) {
+        setState(() {});
+        _controller.setLooping(true);
+        _controller.play(); // automatikusan elindítja
+      });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_controller.value.isInitialized) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: AspectRatio(
+        aspectRatio: _controller.value.aspectRatio,
+        child: VideoPlayer(_controller),
+      ),
+    );
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
